@@ -1,0 +1,1 @@
+npx wrangler d1 execute vote --file=sql\schema.sql

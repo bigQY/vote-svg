@@ -1,0 +1,19 @@
+name = "vote-svg"
+main = "src/index.js"
+compatibility_date = "2023-11-21"
+
+# Bind a KV Namespace. Use KV as persistent storage for small key-value pairs.
+# Docs: https://developers.cloudflare.com/workers/runtime-apis/kv
+[[kv_namespaces]]
+binding = "voteKV"
+id = "xxxxxx"
+
+# d1 database
+[[d1_databases]]
+binding = "DB" # available in your Worker on env.DB
+database_name = "vote"
+database_id = "xxxxxx"
+# site 
+[site]
+bucket = "src/static"
+
