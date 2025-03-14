@@ -7,7 +7,7 @@ export default {
 	async fetch(request, env, ctx) {
 		const url = new URL(request.url);
 		if (url.pathname.startsWith('/api/')) {
-			return apiRouter.handle(request, env, ctx);
+			return apiRouter.fetch(request, env, ctx);
 		}
 		try {
 			return await getAssetFromKV(

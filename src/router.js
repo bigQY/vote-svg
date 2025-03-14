@@ -1,8 +1,8 @@
-import { Router } from 'itty-router';
 import { checkVerifyCode } from './utils';
 
-// now let's create a router (note the lack of "new")
-const router = Router();
+import { AutoRouter } from 'itty-router'
+
+const router = AutoRouter() 
 
 // 创建vote
 router.post('/api/vote/add', async (request,env,ctx) => {
@@ -92,31 +92,97 @@ router.get('/api/vote/:id/result.svg', async ({ params },env,ctx) => {
 	for (const option of result.options) {
 		totalVotes += option['Votes'];
 	}
-	let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="${140 + 40 * result.options.length +20}">
-	<rect width="500" height="${140 + 40 * result.options.length + 20}" style="fill:rgb(255,255,255);stroke-width:3;stroke:rgb(0,0,0)" />
-	<!-- 投票结果 -->
-  <text x="250" y="50" font-size="20" text-anchor="middle">投票结果</text>
-	`
-	if (result.topic[0]['Title'].length > 23) {
-		svg +=
-		`
-		<text x="250" y="80" font-size="10" text-anchor="middle">${result.topic[0]['Title']}</text>
-		`
-	} else {
-		svg +=
-		`
-		<text x="250" y="80" font-size="20" text-anchor="middle">${result.topic[0]['Title']}</text>
-		`
-	}
-	for (const option of result.options) {
-		svg +=
-		`<text x="100" y="${startY}" font-size="18">${option['OptionText']}: ${option['Votes']} 票</text>
-		<rect x="100" y="${startY+10}" width="${300*option['Votes']/totalVotes}" height="12" style="fill:rgb(255,0,0)" />
-		`;
-		startY += stepY;
-	}
-	svg +=
-  `</svg>`;
+    // XML 转义函数
+    const escapeXml = (unsafe) => {
+        return unsafe.replace(/[&<>"']/g, (c) => {
+            switch (c) {
+                case '&': return '&amp;';
+                case '<': return '&lt;';
+                case '>': return '&gt;';
+                case '"': return '&quot;';
+                case "'": return '&apos;';
+                default: return c;
+            }
+        });
+    };
+
+    // 生成现代风格SVG
+    const headerHeight = 120;
+    const itemHeight = 60;
+    const padding = 40;
+    const totalHeight = headerHeight + (itemHeight * result.options.length) + padding;
+    
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="${totalHeight}" viewBox="0 0 600 ${totalHeight}">
+	<defs>
+        <!-- 新增渐变定义 -->
+        <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#3D90FF"/>
+            <stop offset="100%" stop-color="#00d2f1"/>
+        </linearGradient>
+        
+        <!-- 优化阴影效果 -->
+        <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+            <feDropShadow dx="1" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.08)"/>
+        </filter>
+    </defs>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&amp;display=swap');
+        .header { font: 600 28px 'Inter', sans-serif; fill: #2F2F2F; }
+        .title { font: 400 18px/1.4 'Inter', sans-serif; fill: #4A5568; }
+        .label { font: 600 16px 'Inter', sans-serif; fill: #2D3748; }
+        .percentage { font: 400 14px 'Inter', sans-serif; fill: #718096; }
+        .chart-bg { fill: #E2E8F0; rx: 8; }
+        .chart-bar { 
+            fill: url(#gradient);
+            filter: url(#shadow);
+            rx: 6;
+        }
+    </style>
+    
+    <!-- 阴影滤镜 -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="rgba(0,0,0,0.1)"/>
+    </filter>
+    
+    <!-- 背景卡片 -->
+    <rect width="560" height="${totalHeight - 20}" x="20" y="10" rx="16" fill="#FFFFFF"/>
+    
+    <!-- 头部 -->
+    <g transform="translate(40 40)">
+        <text class="header" x="50%" y="0" text-anchor="end">投票结果</text>
+        <text class="title" x="0" y="40" width="520">${escapeXml(result.topic[0]['Title'])}</text>
+    </g>
+    
+    <!-- 数据列 -->
+    <g transform="translate(40 ${headerHeight})">`;
+
+    let yPos = 0;
+    for (const option of result.options) {
+        const percentage = totalVotes ? ((option.Votes / totalVotes) * 100).toFixed(1) : 0;
+        const barWidth = 500 * option.Votes / totalVotes || 0;
+        
+        svg += `
+        <g transform="translate(0 ${yPos})">
+            <text class="label" y="20">${escapeXml(option.OptionText)}</text>
+            <text class="percentage" x="500" y="20" text-anchor="end">${option.Votes} 票 (${percentage}%)</text>
+            
+            <rect class="chart-bg" x="0" y="30" width="500" height="20"/>
+            <rect class="chart-bar" x="0" y="30" width="${barWidth}" height="20">
+                <animate attributeName="width" 
+                         from="0" 
+                         to="${barWidth}" 
+                         dur="0.6s" 
+                         fill="freeze" 
+                         calcMode="spline" 
+                         keySplines="0.25 0.1 0.25 1"/>
+            </rect>
+        </g>`;
+        
+        yPos += itemHeight;
+    }
+
+    svg += `</g></svg>`;
 	// header禁止缓存
 	return new Response(svg, { headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-cache, no-store, must-revalidate' } });
 });
@@ -176,7 +242,7 @@ router.all('/api/vote/:id/voteUrl', async (request,env,ctx) => {
 			<h1>验证码错误请重试</h1>
 			<form action="/api/vote/${params.id}/voteUrl?optionId=${query.optionId} method="get">
 				<input type="hidden" name="optionId" value="${query.optionId}">
-				<div class="cf-turnstile" data-sitekey="0x4xxxxxxxx"></div>
+				<div class="cf-turnstile" data-sitekey="0x4xxxxxxx"></div>
 				<input type="submit" value="继续投票">
 			</form>
 		</center>

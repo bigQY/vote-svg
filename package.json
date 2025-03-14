@@ -8,10 +8,10 @@
     "start": "wrangler dev"
   },
   "devDependencies": {
-    "itty-router": "^3.0.12",
-    "wrangler": "^3.0.0"
+    "itty-router": "5.0.18",
+    "wrangler": "4.0.0"
   },
   "dependencies": {
-    "@cloudflare/kv-asset-handler": "^0.3.0"
+    "@cloudflare/kv-asset-handler": "0.4.0"
   }
 }
