@@ -25,7 +25,17 @@ CREATE TABLE IpVotes (
     IpAddress VARCHAR(15),
     TopicID INTEGER,
     LastVoteTime TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    Fingerprint TEXT,
     FOREIGN KEY (TopicID) REFERENCES Topics(TopicID) ON DELETE CASCADE
 );
+-- 4. 创建索引
+-- 针对IP+主题的快速查询
+CREATE INDEX idx_ip_topic ON IpVotes (IpAddress, TopicID);
+
+-- 针对指纹+主题的快速查询 
+CREATE INDEX idx_fingerprint_topic ON IpVotes (Fingerprint, TopicID);
+
+-- 时间范围查询优化
+CREATE INDEX idx_vote_time ON IpVotes (LastVoteTime);
 
 

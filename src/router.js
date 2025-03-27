@@ -214,6 +214,7 @@ router.all('/api/vote/:id/voteUrl', async (request,env,ctx) => {
 			<meta charset="UTF-8">
 			<title>验证码</title>
 			<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+			<script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@4.6.1/dist/fp.min.js"></script>
 		</head>
 		<body>
 		<center>
@@ -221,9 +222,18 @@ router.all('/api/vote/:id/voteUrl', async (request,env,ctx) => {
 			<form action="/api/vote/${params.id}/voteUrl?optionId=${query.optionId} method="get">
 				<input type="hidden" name="optionId" value="${query.optionId}">
 				<div class="cf-turnstile" data-sitekey="0x4xxxxxxx"></div>
+				<input id="fingerprint" type="hidden" name="fingerprint">
 				<input type="submit" value="继续投票">
 			</form>
 		</center>
+		<script>
+			const fpPromise = FingerprintJS.load()
+			fpPromise
+				.then(fp => fp.get())
+				.then(result => {
+					document.getElementById('fingerprint').value = result.visitorId
+				})
+		</script>
 		</body>
 		</html>`, { headers: { 'Content-Type': 'text/html' } });
 	}
@@ -235,38 +245,76 @@ router.all('/api/vote/:id/voteUrl', async (request,env,ctx) => {
 		<head>
 			<meta charset="UTF-8">
 			<title>验证码</title>
+			<script src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script>
+			<script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@4.6.1/dist/fp.min.js"></script>
 		</head>
 		<body>
 		<center>
-			<script src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script>
 			<h1>验证码错误请重试</h1>
 			<form action="/api/vote/${params.id}/voteUrl?optionId=${query.optionId} method="get">
 				<input type="hidden" name="optionId" value="${query.optionId}">
 				<div class="cf-turnstile" data-sitekey="0x4xxxxxxx"></div>
+				<input id="fingerprint" type="hidden" name="fingerprint">
 				<input type="submit" value="继续投票">
 			</form>
 		</center>
+		<script>
+			const fpPromise = FingerprintJS.load()
+			fpPromise
+				.then(fp => fp.get())
+				.then(result => {
+					document.getElementById('fingerprint').value = result.visitorId
+				})
+		</script>
 		</body>
 		</html>`, { headers: { 'Content-Type': 'text/html' } })
 	}
 
 	// 检查是否已经投过票
+	const fingerprint = query.fingerprint; // 获取前端传递的指纹参数
+	// 在检查投票记录时同时验证指纹
 	const check = await env.DB.prepare(
-		"SELECT * FROM IpVotes WHERE IpAddress = ? AND TopicID = ?"
+		`SELECT * FROM IpVotes 
+		WHERE (IpAddress = ? OR Fingerprint = ?)
+		AND TopicID = ? 
+		AND LastVoteTime > ?`
 	)
-	.bind(ip,params.id)
+	.bind(ip, fingerprint, params.id, Date.now() - 3600 * 1000)
 	.all();
-	// 如果已经投过票，且距离上次投票时间小于1小时，则返回错误
-	// ip未出现过
+	// 如果没有投过票，则插入ip，更新数据库
 	if (check['results'].length === 0) {
 		// 插入ip
+        await env.DB.prepare(
+            "INSERT INTO IpVotes (IpAddress, TopicID, LastVoteTime, Fingerprint) VALUES (?, ?, ?, ?)"
+        )
+        .bind(ip, params.id, Date.now(), fingerprint)
+        .run();
+		// 更新数据库
 		await env.DB.prepare(
-			"INSERT INTO IpVotes (IpAddress, TopicID, LastVoteTime) VALUES (?, ?, ?)"
+			"UPDATE Options SET Votes = Votes + 1 WHERE TopicId = ? AND OptionId = ?"
 		)
-		.bind(ip,params.id,new Date().getTime())
-		.run();
-	} else if (check['results'][0] && check['results'][0]['LastVoteTime'] &&
-	 check['results'][0]['LastVoteTime'] + 360000000 > new Date().getTime()) {
+		.bind(params.id,query.optionId)
+		.all();
+		// 返回html,提示投票成功，并且三秒后关闭当前页面
+	return new Response(`<!DOCTYPE html>
+		<html lang="zh-CN">
+		<head>
+			<meta charset="UTF-8">
+			<title>投票成功</title>
+		</head>
+		<body>
+		<center>
+			<h1>投票成功,5秒内自动关闭本页面</h1>
+			<a href="https://vote-svg.qytest.workers.dev/">发起投票</a>
+			<script>
+				setTimeout(function(){
+					window.close();
+				},5000);
+			</script>
+		</center>
+		</body>
+		</html>`, { headers: { 'Content-Type': 'text/html' } });
+	} else {
 		// 如果已经投过票，且距离上次投票时间小于1小时，则返回错误
 		return new Response(`<!DOCTYPE html>
 		<html lang="zh-CN">
@@ -286,39 +334,7 @@ router.all('/api/vote/:id/voteUrl', async (request,env,ctx) => {
 		</center>
 		</body>
 		</html>`, { headers: { 'Content-Type': 'text/html' } });
-	} else {
-		// 已经投过票，但是距离上次投票时间大于1小时，更新数据库
-		await env.DB.prepare(
-			"UPDATE IpVotes SET LastVoteTime = ? WHERE IpAddress = ? AND TopicID = ?"
-		)
-		.bind(new Date().getTime(),ip,params.id)
-		.run();
 	}
-	// 投票
-	const options = await env.DB.prepare(
-		"UPDATE Options SET Votes = Votes + 1 WHERE TopicId = ? AND OptionId = ?"
-	)
-	.bind(params.id,query.optionId)
-	.all();
-	// 返回html,提示投票成功，并且三秒后关闭当前页面
-	return new Response(`<!DOCTYPE html>
-	<html lang="zh-CN">
-	<head>
-		<meta charset="UTF-8">
-		<title>投票成功</title>
-	</head>
-	<body>
-	<center>
-		<h1>投票成功,3秒内自动关闭本页面</h1>
-		<a href="https://vote-svg.qytest.workers.dev/">发起投票</a>
-		<script>
-			setTimeout(function(){
-				window.close();
-			},3000);
-		</script>
-	</center>
-	</body>
-	</html>`, { headers: { 'Content-Type': 'text/html' } });
 });
 
 // 404 for everything else
